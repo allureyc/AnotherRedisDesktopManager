@@ -51,6 +51,8 @@ Download latest [AppImage](https://github.com/qishibo/AnotherRedisDesktopManager
 
 ## Feature Log
 
+- 2020-12-30: Tree View Support!!!
+- 2020-11-03: Binary View Support && SSH Passparse\Timeout Support
 - 2020-09-04: SSH Cluster Support && Extension Commands Support
 - 2020-06-18: SSL/TLS Support!!!
 - 2020-04-28: Page Zoom && Big Key Loads With Scan && Auto Json
@@ -75,7 +77,7 @@ Download latest [AppImage](https://github.com/qishibo/AnotherRedisDesktopManager
 
 ```bash
 # clone code
-git clone https://github.com/qishibo/AnotherRedisDesktopManager.git
+git clone https://github.com/qishibo/AnotherRedisDesktopManager.git --depth=1
 cd AnotherRedisDesktopManager
 
 # install dependencies
@@ -110,7 +112,7 @@ sudo apt install libfontconfig1-dev
 npm install -g windows-build-tools
 
 # clone code
-git clone https://github.com/qishibo/AnotherRedisDesktopManager.git
+git clone https://github.com/qishibo/AnotherRedisDesktopManager.git --depth=1
 cd AnotherRedisDesktopManager
 
 # install dependencies, 32-bit or 64-bit all use win32

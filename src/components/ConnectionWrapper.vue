@@ -23,6 +23,7 @@
       <!-- key list -->
       <KeyList
         ref='keyList'
+        :config="config"
         :client='client'>
       </KeyList>
     </el-submenu>
@@ -54,6 +55,9 @@ export default {
       this.$refs.keyList.initShow();
     },
     openConnection(callback = false) {
+      // search input loading status
+      this.$refs.operateItem.searchIcon = 'el-icon-loading';
+
       if (this.client) {
         return this.afterOpenConnection(this.client, callback);
       }
