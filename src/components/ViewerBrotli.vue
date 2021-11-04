@@ -27,14 +27,20 @@ export default {
   props: ['content'],
   computed: {
     newContent() {
-      try {
-        // change bigint to string
+      if (this.$util.isJson(this.brotliStr)) {
         let JSONbig = require('json-bigint')({storeAsString: true});
-        let jsonSolved = JSONbig.stringify(JSONbig.parse(this.content));
-
+        let jsonSolved = JSONbig.stringify(JSONbig.parse(this.brotliStr));
+        
         return JSON.parse(jsonSolved);
-      } catch (e) {
-        return this.$t('message.json_format_failed');
+      }
+
+      return this.brotliStr;
+    },
+    brotliStr() {
+      try {
+        return this.$util.brotliToString(this.content);
+      } catch(e) {
+        return 'Brotli Parse Failed: ' + e.message;
       }
     },
   },
@@ -49,6 +55,9 @@ export default {
         this.show = true;
       });
     },
+    copyContent() {
+      return this.brotliStr;
+    }
   },
 }
 </script>

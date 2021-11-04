@@ -27,8 +27,9 @@ export default {
   data() {
     return {
       keyList: [],
-      keyListType: this.config.separator === '' ? 'KeyListNormal' : 'KeyListTree',
-      keysPageSize: this.keyListType === 'KeyListNormal' ? 200 : 400,
+      // keyListType: this.config.separator === '' ? 'KeyListNormal' : 'KeyListTree',
+      // keysPageSize: this.keyListType === 'KeyListNormal' ? 200 : 1000,
+      keyListType: 'KeyListTree',
       searchPageSize: 10000,
       scanStreams: [],
       scanningCount: 0,
@@ -38,14 +39,25 @@ export default {
       firstPageFinished: false,
     };
   },
-  props: ['client', 'config'],
+  props: ['client', 'config', 'globalSettings'],
   components: {KeyListTree, KeyListNormal},
+  computed: {
+    keysPageSize() {
+      let keysPageSize = parseInt(this.globalSettings['keysPageSize']);
+      return keysPageSize ? keysPageSize : 500;
+    },
+  },
   created() {
     // add or remove key from key list directly
     this.$bus.$on('refreshKeyList', (client, key = '', type = 'del') => {
       // refresh only self connection key list
-      if ((client !== this.client) || !key) {
+      if (client !== this.client) {
         return;
+      }
+
+      // refresh directly
+      if (!key) {
+        return this.refreshKeyList();
       }
 
       (type == 'del') && this.removeKeyFromKeyList(key);
@@ -55,6 +67,9 @@ export default {
   methods: {
     initShow() {
       this.refreshKeyList();
+    },
+    setDb(db) {
+      (this.client.condition.select != db) && this.client.select(db);
     },
     refreshKeyList(resetKeyList = true) {
       // reset previous list, not append mode
@@ -184,6 +199,8 @@ export default {
 
       this.client.exists(match).then((reply) => {
         this.keyList = (reply === 1) ? [Buffer.from(match)] : [];
+      }).catch(e => {
+        this.$message.error(e.message);
       });
 
       this.scanMoreDisabled = true;
@@ -215,7 +232,16 @@ export default {
   watch: {
     config(newConfig) {
       // separator changes
-      this.keyListType = newConfig.separator === '' ? 'KeyListNormal' : 'KeyListTree';
+      // this.keyListType = newConfig.separator === '' ? 'KeyListNormal' : 'KeyListTree';
+    },
+    globalSettings(newSetting, oldSetting) {
+      if (!this.client) {
+        return;
+      }
+      // keys number changed, reload scan streams
+      if (newSetting.keysPageSize != oldSetting.keysPageSize) {
+        this.refreshKeyList();
+      }
     },
   },
 }

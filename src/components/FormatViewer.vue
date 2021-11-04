@@ -1,85 +1,207 @@
 <template>
   <div class="format-viewer-container">
-    <el-select v-model="selectedView" class='format-selector' :style='selectStyle' size='mini' placeholder='Text'>
+    <el-select v-model="selectedView" :disabled='overSize' class='format-selector' :style='selectStyle' size='mini' placeholder='Text'>
       <span slot="prefix" class="fa fa-sitemap"></span>
       <el-option
-        v-for="item in viewers"
-        :key="item.value"
+        v-for="item of viewers"
+        :key="item.text"
         :label="item.text"
-        :value="item.value">
+        :value="item.text">
+      </el-option>
+      <!-- add custom -->
+      <el-option
+        @click.native.stop.prevent='addCustomFormatter'
+        value='addCustomFormatter'>
+        <el-button type='text' icon="el-icon-edit-outline">{{$t('message.custom')}}</el-button>
       </el-option>
     </el-select>
+    <span @click='copyContent' :title='$t("message.copy")' class='el-icon-document formater-copy-icon'>{{$t("message.copy")}}</span>
     <span v-if='!contentVisible' class='formater-binary-tag'>[Hex]</span>
     <span class='formater-binary-tag'>Size: {{ $util.humanFileSize(buffSize) }}</span>
     <br>
 
     <component
       ref='viewer'
-      :is='selectedView'
+      :is='viewerComponent'
       :content='content'
+      :name="selectedView"
       :contentVisible='contentVisible'
       :textrows='textrows'
-      @updateContent="$emit('update:content', $event)">
+      :disabled='disabled'
+      :redisKey="redisKey"
+      :dataMap="dataMap"
+      @updateContent="updateContent">
     </component>
   </div>
 </template>
 
 <script type="text/javascript">
+import storage from '@/storage';
 import ViewerText from '@/components/ViewerText';
+import ViewerHex from '@/components/ViewerHex';
 import ViewerJson from '@/components/ViewerJson';
 import ViewerBinary from '@/components/ViewerBinary';
 import ViewerUnserialize from '@/components/ViewerUnserialize';
+import ViewerBrotli from '@/components/ViewerBrotli';
+import ViewerMsgpack from '@/components/ViewerMsgpack';
+import ViewerOverSize from '@/components/ViewerOverSize';
+import ViewerCustom from '@/components/ViewerCustom';
 
 export default {
   data() {
     return {
-      selectedView: '',
+      viewerComponent: 'ViewerText',
+      selectedView: 'Text',
       viewers: [
         { value: 'ViewerText', text: 'Text' },
+        { value: 'ViewerHex', text: 'Hex' },
         { value: 'ViewerJson', text: 'Json' },
         { value: 'ViewerBinary', text: 'Binary' },
+        { value: 'ViewerMsgpack', text: 'Msgpack' },
         { value: 'ViewerUnserialize', text: 'Unserialize' },
+        { value: 'ViewerBrotli', text: 'Brotli' },
       ],
       selectStyle: {
         float: this.float,
       },
+      overSizeBytes: 20971520, // 20MB
+      manualUpdate: false,
     };
   },
-  components: {ViewerText, ViewerJson, ViewerBinary, ViewerUnserialize},
+  components: {ViewerText, ViewerHex, ViewerJson, ViewerBinary, ViewerUnserialize, ViewerMsgpack, ViewerOverSize, ViewerCustom, ViewerBrotli},
   props: {
     float: {default: 'right'},
     content: {default: () => Buffer.from('')},
     textrows: {default: 6},
+    disabled: {type: Boolean, default: false},
+    redisKey:  {default: () => Buffer.from('')},
+    dataMap: {type: Object, default: () => {}},
   },
   computed: {
     contentVisible() {
+      // for better performance, oversize doesn't care visible.
+      if (this.overSize) {
+        return true;
+      }
       return this.$util.bufVisible(this.content);
     },
     buffSize() {
       return Buffer.byteLength(this.content);
     },
+    overSize() {
+      return this.buffSize > this.overSizeBytes;
+    },
+    viewersMap() {
+      // add oversize tmp
+      let map = {OverSize: 'ViewerOverSize'};
+
+      this.viewers.forEach(item => {
+        map[item.text] = item.value;
+      });
+
+      return map;
+    },
   },
-  methods: {
-    autoFormat() {
-      // reload each viewer
-      this.selectedView = '';
+  created() {
+    this.$bus.$on('refreshViewers', () => {
+      this.removeCustom();
+      this.loadCustomViewers();
+    });
+  },
+  watch: {
+    content() {
+      // do not auto format while user editting
+      if (this.manualUpdate) {
+        return this.manualUpdate = false;
+      }
 
+      this.autoFormat();
+    },
+    selectedView(viewer) {
+      // custom viewer com may same, force change
+      this.viewerComponent = '';
       this.$nextTick(() => {
-        if (!this.content) {
-          this.selectedView = 'ViewerText';
-          return;
-        }
-
-        if (this.$util.isJson(this.content)) {
-          this.selectedView = 'ViewerJson';
-        }
-        else {
-          this.selectedView = 'ViewerText';
-        }
+        this.viewerComponent = this.viewersMap[viewer];
       });
     },
   },
-}
+  methods: {
+    // update by user edit
+    updateContent(content) {
+      this.manualUpdate = true;
+      this.$emit('update:content', content);
+    },
+    changeViewer(viewer) {
+      this.selectedView = viewer;
+      this.viewerComponent = this.viewersMap[viewer];
+    },
+    addCustomFormatter() {
+      this.$bus.$emit('addCustomFormatter');
+      this.autoFormat();
+    },
+    autoFormat() {
+      if (!this.content || !this.content.length) {
+        return this.changeViewer('Text');
+      }
+
+      if (this.overSize) {
+        return this.changeViewer('OverSize');
+      }
+
+      // json
+      if (this.$util.isJson(this.content)) {
+        return this.changeViewer('Json');
+      }
+      // php unserialize
+      else if (this.$util.isPHPSerialize(this.content)) {
+        return this.changeViewer('Unserialize');
+      }
+      // msgpack
+      else if (this.$util.isMsgpack(this.content)) {
+        return this.changeViewer('Msgpack');
+      }
+      // Brotli unserialize
+      else if (this.$util.brotliToString(this.content)) {
+        return this.changeViewer('Brotli');
+      }
+      // hex
+      else if (!this.contentVisible) {
+        return this.changeViewer('Hex');
+      }
+      else {
+        return this.changeViewer('Text');
+      }
+    },
+    copyContent() {
+      let content = (typeof this.$refs.viewer.copyContent == 'function') ?
+                    this.$refs.viewer.copyContent() :
+                    this.content;
+
+      this.$util.copyToClipboard(content);
+      this.$message.success(this.$t('message.copy_success'));
+    },
+    loadCustomViewers() {
+      const formatters = storage.getCustomFormatter();
+
+      if (!formatters || !formatters.length) {
+        return;
+      }
+
+      formatters.forEach(formatter => {
+        this.viewers.push({value: 'ViewerCustom', text: formatter.name, type: 'custom'});
+      });
+    },
+    removeCustom() {
+      this.viewers = this.viewers.filter(item => {
+        return item.type !== 'custom';
+      });
+    },
+  },
+  mounted() {
+    this.autoFormat();
+    this.loadCustomViewers();
+  },
+};
 </script>
 
 <style type="text/css">
@@ -87,7 +209,7 @@ export default {
     width: 122px;
   }
   .format-selector .el-input__inner {
-    height: 22px;
+    height: 22px !important;
   }
 
   .text-formated-container {
@@ -130,6 +252,11 @@ export default {
   .formater-binary-tag {
     /*padding-left: 5px;*/
     color: #7ab3ef;
+    font-size: 80%;
+  }
+  .formater-copy-icon {
+    color: #7ab3ef;
+    cursor: pointer;
     font-size: 80%;
   }
 </style>

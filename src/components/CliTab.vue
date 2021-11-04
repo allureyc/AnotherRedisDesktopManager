@@ -17,24 +17,30 @@
         class="input-suggestion"
         autocomplete="off"
         v-model="params"
+        :debounce='10'
+        :disabled='subscribeMode'
         :fetch-suggestions="inputSuggestion"
         :placeholder="$t('message.enter_to_exec')"
         :select-when-unmatched="true"
         :trigger-on-focus="false"
         popper-class="cli-console-suggestion"
-        @keyup.enter.native="consoleExec"
         ref="cliParams"
+        @select='$refs.cliParams.focus()'
+        @keyup.enter.native="consoleExec"
         @keyup.up.native="searchUp"
         @keyup.down.native="searchDown">
       </el-autocomplete>
     </el-form-item>
   </el-form>
+
+  <el-button v-if='subscribeMode' @click='stopSubscribe' type='danger' class='stop-subscribe'>Stop Subscribe</el-button>
 </div>
 </template>
 
 <script type="text/javascript">
 import rawCommand from '@/rawCommand';
-import splitargs from 'splitargs';
+import cmdTips from '@/cmds';
+import splitargs from 'redis-splitargs';
 
 export default {
   data() {
@@ -44,27 +50,80 @@ export default {
       historyIndex: 0,
       inputSuggestionItems: [],
       multiQueue: null,
+      subscribeMode: false,
     };
   },
-  props: ['client'],
+  props: ['client', 'hotKeyScope'],
+  computed: {
+    paramsTrim() {
+      return this.params.replace(/^\s+|\s+$/g, '');
+    },
+    paramsArr() {
+      try {
+        return splitargs(this.paramsTrim);
+      }
+      catch(e) {
+        return [this.paramsTrim];
+      }
+    }
+  },
+  created() {
+    this.$bus.$on('changeDb', (client, dbIndex) => {
+      if (!this.anoClient || client.options.connectionName != this.anoClient.options.connectionName) {
+        return;
+      }
+
+      if (this.anoClient.condition.select == dbIndex) {
+        return;
+      }
+
+      this.anoClient.select(dbIndex);
+    });
+  },
   methods: {
     initShow() {
-      this.$refs.cliParams.focus();
-      this.initCliContent();
+      if (!this.client) {
+        return;
+      }
+
+      // copy to another client
+      this.anoClient = this.client.duplicate();
+      // bind subscribe messages
+      this.bindSubscribeMessage();
+
+      this.anoClient.on('ready', () => {
+        !this.anoClient.cliInited && this.initCliContent();
+        this.anoClient.cliInited = true;
+      });
+
+      this.$nextTick(() => {
+        this.$refs.cliParams.focus();
+      });
     },
     initCliContent() {
-      this.content += `> ${this.client.options.connectionName} connected!\n`;
+      this.content += `> ${this.anoClient.options.connectionName} connected!\n`;
       this.scrollToBottom();
     },
+    tabClick() {
+      this.$nextTick(() => {
+        this.$refs.cliParams.focus();
+      });
+    },
     inputSuggestion(input, cb) {
-      if (!this.params) {
+      // tmp store cb
+      this.cb = cb;
+
+      if (!this.paramsTrim) {
         cb([]);
         return;
       }
 
       const items = this.inputSuggestionItems.filter(function (item) {
-        return item.indexOf(input) !== -1;
+        return item.toLowerCase().indexOf(input.toLowerCase()) !== -1;
       });
+
+      // add cmd tips
+      this.addCMDTips(items);
 
       const suggestions = [...new Set(items)].map(function (item) {
         return {value: item};
@@ -72,9 +131,55 @@ export default {
 
       cb(suggestions);
     },
+    addCMDTips(items = []) {
+      const paramsArr = this.paramsArr;
+      const paramsLen = paramsArr.length;
+      const cmd = paramsArr[0].toUpperCase();
+
+      if (!cmd) {
+        return;
+      }
+
+      for (var i = cmdTips.length - 1; i >= 0; i--) {
+        // cmd with param such as 'hget hhh'
+        if (paramsLen > 1) {
+          if (cmdTips[i].split(' ')[0] === cmd) {
+            items.unshift(cmdTips[i]);
+          }
+        }
+        // cmd without param such as 'hget'
+        else {
+          if (cmdTips[i].startsWith(cmd)) {
+            items.unshift(cmdTips[i]);
+          }
+        }
+      }
+    },
+    bindSubscribeMessage() {
+      // bind subscribe message
+      this.anoClient.on('message', (channel, message) => {
+        this.scrollToBottom(`\n${channel}\n${message}`);
+      });
+
+      // bind psubscribe message
+      this.anoClient.on('pmessage', (pattern, channel, message) => {
+        this.scrollToBottom(`\n${pattern}\n${channel}\n${message}`);
+      });
+    },
+    stopSubscribe() {
+      this.subscribeMode = false;
+      const subSet = this.anoClient.condition.subscriber.set;
+
+      if (!subSet) {
+        return;
+      }
+
+      Object.keys(subSet.subscribe).length && this.anoClient.unsubscribe();
+      Object.keys(subSet.psubscribe).length && this.anoClient.punsubscribe();
+    },
     consoleExec() {
-      const params = this.params.replace(/^\s+|\s+$/g, '');
-      const paramsArr = splitargs(params);
+      const params = this.paramsTrim;
+      const paramsArr = this.paramsArr;
 
       this.params = '';
       this.content += `> ${params}\n`;
@@ -103,7 +208,7 @@ export default {
           return this.scrollToBottom('(error) ERR EXEC without MULTI');
         }
 
-        this.client.multi(this.multiQueue).exec((err, reply) => {
+        this.anoClient.multi(this.multiQueue).execBuffer((err, reply) => {
           if (err) {
             this.content += `${err}\n`;
           }
@@ -119,12 +224,17 @@ export default {
 
       // multi enqueue
       if (Array.isArray(this.multiQueue)) {
-        this.multiQueue.push(['call', paramsArr[0], ...paramsArr.slice(1)]);
+        this.multiQueue.push(['callBuffer', paramsArr[0], ...paramsArr.slice(1)]);
         return this.scrollToBottom('QUEUED');
       }
 
+      // subscribe command
+      if (/subscribe/.test(paramsArr[0].toLowerCase())) {
+        this.subscribeMode = true;
+      }
+
       // normal command
-      let promise = rawCommand.exec(this.client, paramsArr);
+      let promise = rawCommand.exec(this.anoClient, paramsArr);
 
       // exec error
       if (typeof promise == 'string') {
@@ -148,8 +258,8 @@ export default {
     execFinished(params) {
       const operate = params[0];
 
-      if (operate === 'select' && !isNaN(params[1])) {
-        this.$bus.$emit('changeDb', this.client, params[1]);
+      if (operate.toLowerCase() === 'select' && !isNaN(params[1])) {
+        this.$bus.$emit('changeDb', this.anoClient, params[1]);
       }
     },
     scrollToBottom(append = '') {
@@ -176,14 +286,13 @@ export default {
     resolveResult(result) {
       let append = '';
 
-      if (result === null) {
-        append = `${null}\n`;
-      }
-      else if (typeof result === 'object' && !Buffer.isBuffer(result)) {
+      // list or dict
+      if (typeof result === 'object' && result !== null && !Buffer.isBuffer(result)) {
         const isArray = Array.isArray(result);
 
         for (const i in result) {
-          if (typeof result[i] === 'object' && result[i] !== null) {
+          // list or dict
+          if (typeof result[i] === 'object' && result[i] !== null && !Buffer.isBuffer(result[i])) {
             // fix ioredis pipline result such as [[null, "v1"], [null, "v2"]]
             // null is the result, and v1 is the value
             if (result[i][0] === null) {
@@ -193,14 +302,16 @@ export default {
               append += this.resolveResult(result[i]);
             }
           }
-
+          // string buffer null
           else {
-            append += `${(isArray ? '' : (`${i}\n`)) + result[i]}\n`;
+            append += (isArray ? '' : (this.$util.bufToString(i) + "\n")) +
+                      this.$util.bufToString(result[i]) + "\n";
           }
         }
       }
+      // string buffer null
       else {
-        append = `${result}\n`;
+        append = this.$util.bufToString(result) + "\n";
       }
 
       return append;
@@ -244,10 +355,26 @@ export default {
 
       return false;
     },
+    initShortcut() {
+      // this.$shortcut.bind('ctrl+c', this.hotKeyScope, () => {
+      //   this.params = '';
+      //   this.scrollToBottom('> ^C');
+      //   // close the tips
+      //   (typeof this.cb == 'function') && this.cb([]);
+      // });
+      this.$shortcut.bind('ctrl+l, ⌘+l', this.hotKeyScope, () => {
+        this.content = '';
+      });
+    },
   },
   mounted() {
     this.initShow();
-  }
+    this.initShortcut();
+  },
+  beforeDestroy() {
+    this.anoClient && this.anoClient.quit && this.anoClient.quit();
+    this.$shortcut.deleteScope(this.hotKeyScope);
+  },
 };
 </script>
 
@@ -281,9 +408,16 @@ export default {
     border-bottom: 0px;
     border-radius: 4px 4px 0 0;
     cursor: text;
+    height: calc(100vh - 160px);
   }
   .dark-mode #cli-content {
     color: #f7f7f7;
     background: #324148;
+  }
+
+  .stop-subscribe {
+    position: fixed;
+    right: 30px;
+    bottom: 104px;
   }
 </style>

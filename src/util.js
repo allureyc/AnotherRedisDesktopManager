@@ -13,12 +13,16 @@ export default {
 
     return buf.equals(Buffer.from(buf.toString()));
   },
-  bufToString(buf) {
-    if (typeof buf == 'string') {
+  bufToString(buf, forceHex = false) {
+    // if (typeof buf == 'string') {
+    //   return buf;
+    // }
+
+    if (!Buffer.isBuffer(buf)) {
       return buf;
     }
 
-    if (this.bufVisible(buf)) {
+    if (!forceHex && this.bufVisible(buf)) {
       return buf.toString();
     }
 
@@ -70,6 +74,41 @@ export default {
 
     return false;
   },
+  isPHPSerialize(str) {
+    const phpSerialize = require('php-serialize');
+
+    try {
+      phpSerialize.unserialize(str);
+      return true;
+    }catch (e) {}
+
+    return false;
+  },
+  isMsgpack(buf) {
+    const decode = require('@msgpack/msgpack').decode;
+    try {
+      const result = decode(buf);
+      if (typeof result === 'object') {
+        return true;
+      }
+    }
+    catch (e) {
+      return false;
+    }
+
+    return false;
+  },
+  brotliToString(buf) {
+    const decompress = require('brotli/decompress');
+    try {
+      let decompressed = decompress(buf);
+      return Buffer.from(decompressed).toString();
+    }catch (e) {
+      return false;
+    }
+
+    return false;
+  },
   base64Encode(str) {
     return (new Buffer(str, 'utf8')).toString('base64');
   },
@@ -93,6 +132,14 @@ export default {
     }
 
     return clone;
+  },
+  keysToList(keys) {
+    return keys.map(key => {
+      return {
+        name: this.bufToString(key),
+        nameBuffer: key.toJSON(),
+      };
+    });
   },
   keysToTree(keys, separator = ':', openStatus = {}) {
     let tree = {};
@@ -119,17 +166,20 @@ export default {
       });
     });
 
-    return this.formatTreeData(tree, '', openStatus)
+    return this.formatTreeData(tree, '', openStatus, separator)
   },
-  formatTreeData(tree, previousKey = '', openStatus = {}) {
+  formatTreeData(tree, previousKey = '', openStatus = {}, separator = ':') {
     return Object.keys(tree).map(key => {
       let node = { name: key};
 
       if (!tree[key].keyNode && Object.keys(tree[key]).length > 0) {
-        let tillNowKeyName = previousKey + key;
+        let tillNowKeyName = previousKey + key + separator;
         node.open     = !!openStatus[tillNowKeyName];
-        node.children = this.formatTreeData(tree[key], tillNowKeyName, openStatus);
+        node.children = this.formatTreeData(tree[key], tillNowKeyName, openStatus, separator);
+        // keep folder node in top of the tree(not include the outest list)
+        this.sortNodes(node.children);
         node.keyCount = node.children.reduce((a, b) => a + (b.keyCount || 0), 0);
+        node.fullName = tillNowKeyName;
       }
       else {
         node.keyCount = 1;
@@ -139,5 +189,19 @@ export default {
 
       return node;
     });
-  }
+  },
+  // nodes is reference
+  sortNodes(nodes) {
+    nodes.sort(function(a, b) {
+      if (a.children && b.children) {
+        return 0;
+      }
+
+      return a.children ? -1 : (b.children ? 1 : 0);
+    });
+  },
+  copyToClipboard(text) {
+    const clipboard = require('electron').clipboard;
+    clipboard.writeText(text ? text.toString() : '');
+  },
 };

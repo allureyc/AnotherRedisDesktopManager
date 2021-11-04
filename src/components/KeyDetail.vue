@@ -8,6 +8,7 @@
         :redisKey="redisKey"
         :keyType="keyType"
         @refreshContent='refreshContent'
+        :hotKeyScope='hotKeyScope'
         class="key-header-info">
       </KeyHeader>
 
@@ -17,6 +18,7 @@
         :is="componentName"
         :client='client'
         :redisKey="redisKey"
+        :hotKeyScope='hotKeyScope'
         class="key-content-container">
       </component>
     </el-container>
@@ -30,14 +32,16 @@ import KeyContentHash from '@/components/KeyContentHash';
 import KeyContentSet from '@/components/KeyContentSet';
 import KeyContentZset from '@/components/KeyContentZset';
 import KeyContentList from '@/components/KeyContentList';
+import KeyContentStream from '@/components/KeyContentStream';
 
 export default {
   data() {
     return {};
   },
-  props: ['client', 'redisKey', 'keyType'],
+  props: ['client', 'redisKey', 'keyType', 'hotKeyScope'],
   components: {
-    KeyHeader, KeyContentString, KeyContentHash, KeyContentSet, KeyContentZset, KeyContentList
+    KeyHeader, KeyContentString, KeyContentHash, KeyContentSet, KeyContentZset,
+    KeyContentList, KeyContentStream,
   },
   computed: {
     componentName() {
@@ -52,6 +56,7 @@ export default {
         zset  : 'KeyContentZset',
         set   : 'KeyContentSet',
         list  : 'KeyContentList',
+        stream  : 'KeyContentStream',
       };
 
       if (map[keyType]) {
@@ -64,7 +69,15 @@ export default {
       }
     },
     refreshContent() {
-      this.$refs.keyContent && this.$refs.keyContent.initShow();
+      this.client.exists(this.redisKey).then(reply => {
+        if (!reply) {
+          return this.$message.error(this.$t('message.key_not_exists'));
+        }
+
+        this.$refs.keyContent && this.$refs.keyContent.initShow();
+      }).catch(e => {
+        this.$message.error('Exists Error: ' + e.message);
+      });
     },
   },
 };
