@@ -1,3 +1,7 @@
+import utils from './util';
+
+const { randomString } = utils;
+
 export default {
   getSetting(key) {
     let settings = localStorage.getItem('settings');
@@ -8,6 +12,20 @@ export default {
   saveSettings(settings) {
     settings = JSON.stringify(settings);
     return localStorage.setItem('settings', settings);
+  },
+  getFontFamily() {
+    let fontFamily = this.getSetting('fontFamily');
+
+    // set to default font-family
+    if (
+      !fontFamily || !fontFamily.length ||
+      fontFamily.toString() === 'Default Initial'
+    ) {
+      fontFamily = ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Helvetica',
+      'Arial', 'sans-serif','Microsoft YaHei', 'Apple Color Emoji', 'Segoe UI Emoji'];
+    }
+
+    return fontFamily.map(line => {return `"${line}"`}).join(',');
   },
   getCustomFormatter(name = '') {
     let formatters = localStorage.getItem('customFormatters');
@@ -53,7 +71,9 @@ export default {
 
     // new added has no order, add it. do not add when edit mode
     if (!oldKey && isNaN(connection.order)) {
-      connection.order = Object.keys(connections).length;
+      // connection.order = Object.keys(connections).length;
+      const maxOrder = Math.max(...Object.values(connections).map(item => !isNaN(item.order) ? item.order : 0));
+      connection.order = (maxOrder > 0 ? maxOrder : 0) + 1;
     }
 
     connections[newKey] = connection;
@@ -77,7 +97,7 @@ export default {
     for (let key in connections) {
       // if 'name' same with others, add random suffix
       if (this.getConnectionName(connections[key]) == name) {
-        name += ` (${Math.random().toString(36).substr(-3)})`;
+        name += ` (${randomString(3)})`;
         break;
       }
     }
@@ -108,7 +128,7 @@ export default {
     }
 
     if (forceUnique) {
-      return new Date().getTime() + '_' + Math.random().toString(36).substr(-5);
+      return new Date().getTime() + '_' + randomString(5);
     }
 
     return connection.host + connection.port + connection.name;
@@ -133,7 +153,7 @@ export default {
 
     for (const index in connections) {
       let connection = connections[index];
-      connection.order = index;
+      connection.order = parseInt(index);
       newConnections[this.getConnectionKey(connection, true)] = connection;
     }
 

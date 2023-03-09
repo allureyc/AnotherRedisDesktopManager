@@ -1,23 +1,31 @@
 <template>
   <div>
     <!-- </textarea> -->
-    <el-input :disabled='disabled' type='textarea' :rows='textrows' :value='contentDisplay' @change="updateContent($event)"></el-input>
+    <el-input ref='textInput' :disabled='disabled' type='textarea' v-model='contentDisplay'></el-input>
   </div>
 </template>
 
 <script type="text/javascript">
 export default {
-  props: ['content', 'contentVisible', 'textrows', 'disabled'],
-  computed: {
-    contentDisplay() {
-      return this.$util.bufToString(this.content);
+  data() {
+    return {
+      contentDisplay: ""
+    }
+  },
+  props: ['content', 'contentVisible', 'disabled'],
+  watch: {
+    content(val) {
+      // refresh
+      this.contentDisplay = this.$util.bufToString(val);
     },
   },
   methods: {
-    updateContent(value) {
-      let newContent = this.$util.xToBuffer(value);
-      this.$emit('updateContent', newContent);
+    getContent() {
+      return this.$util.xToBuffer(this.contentDisplay);
     },
+  },
+  mounted() {
+    this.contentDisplay = this.$util.bufToString(this.content);
   },
 }
 </script>

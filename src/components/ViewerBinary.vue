@@ -1,29 +1,31 @@
 <template>
   <div>
     <!-- </textarea> -->
-    <el-input :disabled='disabled' type='textarea' :rows='textrows' :value='binaryValue' @change="updateContent($event)"></el-input>
+    <el-input ref='textInput' :disabled='disabled' type='textarea' v-model='contentDisplay'></el-input>
   </div>
 </template>
 
 <script type="text/javascript">
 export default {
-  props: ['content', 'textrows', 'disabled'],
-  computed: {
-    binaryValue() {
-      let binary = '';
-
-      for (let item of this.content) {
-          binary += item.toString(2).padStart(8, 0);
-      }
-
-      return binary;
+  data() {
+    return {
+      contentDisplay: ""
+    }
+  },
+  props: ['content', 'contentVisible', 'disabled'],
+  watch: {
+    content(val) {
+      // refresh
+      this.contentDisplay = this.$util.bufToBinary(val)
     },
   },
   methods: {
-    updateContent(value) {
-      let newContent = this.$util.binaryStringToBuffer(value);
-      this.$emit('updateContent', newContent);
+    getContent() {
+      return this.$util.binaryStringToBuffer(this.contentDisplay);
     },
+  },
+  mounted() {
+    this.contentDisplay = this.$util.bufToBinary(this.content)
   },
 }
 </script>

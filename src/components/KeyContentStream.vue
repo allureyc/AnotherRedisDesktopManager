@@ -1,18 +1,18 @@
 <template>
   <div>
     <div>
-      <el-form :inline="true" size="small">
+      <el-form :inline="true">
         <!-- add button -->
         <el-form-item>
-          <el-button size="small" type="primary" @click='showEditDialog({id:"*"})'>{{ $t('message.add_new_line') }}</el-button>
+          <el-button type="primary" @click='showEditDialog({id:"*"})'>{{ $t('message.add_new_line') }}</el-button>
         </el-form-item>
         <!-- max value -->
         <el-form-item label="Max">
-          <el-input v-model="maxId" @keyup.enter.native='initShow' type="primary" placeholder='Max ID, default +' :title='$t("message.enter_to_search")'>Max</el-input>
+          <el-input v-model="maxId" @keyup.enter.native='initShow' type="primary" placeholder='Max ID, default +' :title='$t("message.enter_to_search")' size='mini'>Max</el-input>
         </el-form-item>
         <!-- min value -->
         <el-form-item label="Min">
-          <el-input v-model="minId" @keyup.enter.native='initShow' type="primary" placeholder='Min ID, default -' :title='$t("message.enter_to_search")'>Min</el-input>
+          <el-input v-model="minId" @keyup.enter.native='initShow' type="primary" placeholder='Min ID, default -' :title='$t("message.enter_to_search")' size='mini'>Min</el-input>
         </el-form-item>
       </el-form>
 
@@ -23,8 +23,8 @@
             <InputBinary :disabled='!!beforeEditItem.contentString' :content.sync="editLineItem.id"></InputBinary>
           </el-form-item>
 
-          <el-form-item label="Value (JSON format)">
-            <FormatViewer :redisKey="redisKey" :dataMap="editLineItem" :disabled='!!beforeEditItem.contentString' ref='formatViewer' :content.sync='editLineItem.contentString'></FormatViewer>
+          <el-form-item label="Value (JSON string)">
+            <FormatViewer :redisKey="redisKey" :dataMap="editLineItem" :disabled='!!beforeEditItem.contentString' ref='formatViewer' :content='editLineItem.contentString'></FormatViewer>
           </el-form-item>
         </el-form>
 
@@ -38,8 +38,8 @@
     <!-- content table -->
     <el-table
       stripe
-      size="small"
       border
+      size='mini'
       min-height=300
       :data="lineData">
       <el-table-column
@@ -71,6 +71,7 @@
           <el-button type="text" @click="$util.copyToClipboard(JSON.stringify(scope.row.content))" icon="el-icon-document" :title="$t('message.copy')"></el-button>
           <el-button type="text" @click="showEditDialog(scope.row)" icon="el-icon-view" :title="$t('message.detail')"></el-button>
           <el-button type="text" @click="deleteLine(scope.row)" icon="el-icon-delete" :title="$t('el.upload.delete')"></el-button>
+          <el-button type="text" @click="dumpCommand(scope.row)" icon="fa fa-code" :title="$t('message.dump_to_clipboard')"></el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -102,7 +103,7 @@ export default {
       beforeEditItem: {},
       editLineItem: {},
       loadingIcon: '',
-      pageSize: 30,
+      pageSize: 100,
       loadMoreDisable: false,
       minId: '-',
       maxId: '+',
@@ -139,7 +140,7 @@ export default {
 
         for (let stream of reply) {
           let content = {};
-          let line = {id: stream[0], content: content};
+          let line = {id: stream[0], content: content, uniq: Math.random()};
           // add key value map
           for (var i = 0; i < stream[1].length; i+=2) {
             content[this.$util.bufToString(stream[1][i])] =
@@ -176,28 +177,46 @@ export default {
       this.loadMoreDisable = false;
     },
     openDialog() {
-      // this.$nextTick(() => {
-      //   this.$refs.formatViewer.autoFormat();
-      // });
+      this.$nextTick(() => {
+        this.$refs.formatViewer.autoFormat();
+      });
     },
     showEditDialog(row) {
       this.editLineItem = row;
       this.beforeEditItem = this.$util.cloneObjWithBuff(row);
       this.editDialog = true;
     },
-    editLine() {
-      const after = this.editLineItem
+    dumpCommand(item) {
+      const lines = item ? [item] : this.lineData;
+      const params = lines.map(line => {
+        let command = `XADD ${this.$util.bufToQuotation(this.redisKey)} ${line.id} `;
+        
+        let dicts = [];
+        for (const field in line.content) {
+          dicts.push(this.$util.bufToQuotation(field), this.$util.bufToQuotation(line.content[field]));
+        }
 
-      if (!after.id || !after.contentString) {
+        return `${command} ${dicts.join(' ')}`;
+      });
+
+      // reverse: id asc order
+      this.$util.copyToClipboard(params.reverse().join('\n'));
+      this.$message.success({message: this.$t('message.copy_success'), duration: 800});
+    },
+    editLine() {
+      const afterId = this.editLineItem.id
+      const afterValue = this.$refs.formatViewer.getContent();
+
+      if (!afterId || !afterValue) {
         return;
       }
 
-      if (!this.$util.isJson(after.contentString)) {
+      if (!this.$util.isJson(afterValue)) {
         return this.$message.error(this.$t('message.json_format_failed'));
       }
 
       let mapList = [];
-      let jsonObj = JSON.parse(after.contentString);
+      let jsonObj = JSON.parse(afterValue);
 
       for (let k in jsonObj) {
         mapList.push(...[k, jsonObj[k]]);
@@ -205,7 +224,7 @@ export default {
 
       this.client.xadd(
         this.redisKey,
-        after.id,
+        afterId,
         mapList
       ).then((reply) => {
         // reply is id
@@ -231,13 +250,15 @@ export default {
           this.redisKey,
           row.id
         ).then((reply) => {
-          if (reply === 1) {
+          if (reply == 1) {
             this.$message.success({
               message: this.$t('message.delete_success'),
               duration: 1000,
             });
 
-            this.initShow();
+            // this.initShow(); // do not reinit, #786
+            this.$util.listSplice(this.lineData, row.uniq);
+            this.total--;
           }
         });
       }).catch(() => {});

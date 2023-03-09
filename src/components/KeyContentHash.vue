@@ -2,9 +2,9 @@
   <div>
     <div>
       <!-- add button -->
-      <el-form :inline="true" size="small">
+      <el-form :inline="true">
         <el-form-item>
-          <el-button size="small" type="primary" @click='showEditDialog({})'>{{ $t('message.add_new_line') }}</el-button>
+          <el-button type="primary" @click='showEditDialog({})'>{{ $t('message.add_new_line') }}</el-button>
         </el-form-item>
       </el-form>
 
@@ -16,7 +16,7 @@
           </el-form-item>
 
           <el-form-item label="Value">
-            <FormatViewer ref='formatViewer' :redisKey="redisKey" :dataMap="editLineItem" :content.sync='editLineItem.value'></FormatViewer>
+            <FormatViewer ref='formatViewer' :redisKey="redisKey" :dataMap="editLineItem" :content='editLineItem.value'></FormatViewer>
           </el-form-item>
         </el-form>
 
@@ -30,8 +30,8 @@
     <!-- content table -->
     <el-table
       stripe
-      size="small"
       border
+      size='mini'
       min-height=300
       :data="hashData">
       <el-table-column
@@ -45,7 +45,8 @@
         sortable
         resizable
         label="Key"
-        width=150>
+        show-overflow-tooltip
+        width="150">
         <template slot-scope="scope">
           {{ $util.bufToString(scope.row.key) }}
         </template>
@@ -74,6 +75,7 @@
           <el-button type="text" @click="$util.copyToClipboard(scope.row.value)" icon="el-icon-document" :title="$t('message.copy')"></el-button>
           <el-button type="text" @click="showEditDialog(scope.row)" icon="el-icon-edit" :title="$t('message.edit_line')"></el-button>
           <el-button type="text" @click="deleteLine(scope.row)" icon="el-icon-delete" :title="$t('el.upload.delete')"></el-button>
+          <el-button type="text" @click="dumpCommand(scope.row)" icon="fa fa-code" :title="$t('message.dump_to_clipboard')"></el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -110,7 +112,7 @@ export default {
       beforeEditItem: {},
       editLineItem: {},
       loadingIcon: '',
-      pageSize: 30,
+      pageSize: 100,
       searchPageSize: 1000,
       oneTimeListLength: 0,
       scanStream: null,
@@ -148,6 +150,8 @@ export default {
       }).catch(e => {});
     },
     resetTable() {
+      // stop scanning first, #815
+      this.scanStream && this.scanStream.pause();
       this.hashData = [];
       this.scanStream = null;
       this.oneTimeListLength = 0;
@@ -171,6 +175,7 @@ export default {
             // keyDisplay: this.$util.bufToString(reply[i]),
             value: reply[i + 1],
             // valueDisplay: this.$util.bufToString(reply[i + 1]),
+            uniq: Math.random(),
           });
         }
 
@@ -198,49 +203,67 @@ export default {
       return this.filterValue ? `*${this.filterValue}*` : '*';
     },
     openDialog() {
-      // this.$nextTick(() => {
-      //   this.$refs.formatViewer.autoFormat();
-      // });
+      this.$nextTick(() => {
+        this.$refs.formatViewer.autoFormat();
+      });
     },
     showEditDialog(row) {
       this.editLineItem = row;
       this.beforeEditItem = this.$util.cloneObjWithBuff(row);
       this.editDialog = true;
+
+      this.rowUniq = row.uniq;
+    },
+    dumpCommand(item) {
+      const lines = item ? [item] : this.hashData;
+      const params = lines.map(line => {
+        return `${this.$util.bufToQuotation(line.key)} ` +
+               this.$util.bufToQuotation(line.value);
+      });
+
+      const command = `HMSET ${this.$util.bufToQuotation(this.redisKey)} ${params.join(' ')}`;
+      this.$util.copyToClipboard(command);
+      this.$message.success({message: this.$t('message.copy_success'), duration: 800});
     },
     editLine() {
       const key = this.redisKey;
       const client = this.client;
       const before = this.beforeEditItem;
-      const after = this.editLineItem;
 
-      this.editDialog = false;
+      const afterKey = this.editLineItem.key;
+      const afterValue = this.$refs.formatViewer.getContent();
 
-      if (!after.key || !after.value) {
+      if (!afterKey || !afterValue) {
         return;
       }
 
+      this.editDialog = false;
+
       client.hset(
         key,
-        after.key,
-        after.value
+        afterKey,
+        afterValue
       ).then((reply) => {
         // edit key && key changed
-        if (before.key && !before.key.equals(after.key)) {
-          client.hdel(
-            key,
-            before.key
-          ).then((reply) => {
-            this.initShow();
-          });
+        if (before.key && !before.key.equals(afterKey)) {
+          client.hdel(key, before.key);
         }
 
+        // this.initShow(); // do not reinit, #786
+        const newLine = {key: afterKey, value: afterValue, uniq: Math.random()};
+        // edit line
+        if (this.rowUniq) {
+          this.$util.listSplice(this.hashData, this.rowUniq, newLine);
+        }
+        // new line
         else {
-          this.initShow();
+          this.hashData.push(newLine);
+          this.total++;
         }
 
         // reply==1:new field; reply==0 field exists
         this.$message.success({
-          message: reply ? this.$t('message.add_success') : this.$t('message.modify_success'),
+          message: reply == 1 ? this.$t('message.add_success') : this.$t('message.modify_success'),
           duration: 1000,
         });
       }).catch(e => {this.$message.error(e.message);});
@@ -254,13 +277,15 @@ export default {
           this.redisKey,
           row.key
         ).then((reply) => {
-          if (reply === 1) {
+          if (reply == 1) {
             this.$message.success({
               message: this.$t('message.delete_success'),
               duration: 1000,
             });
 
-            this.initShow();
+            // this.initShow(); // do not reinit, #786
+            this.$util.listSplice(this.hashData, row.uniq);
+            this.total--;
           }
         }).catch(e => {this.$message.error(e.message);});
       }).catch(() => {});

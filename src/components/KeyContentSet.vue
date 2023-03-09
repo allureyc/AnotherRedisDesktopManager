@@ -2,9 +2,9 @@
   <div>
     <div>
       <!-- add button -->
-      <el-form :inline="true" size="small">
+      <el-form :inline="true">
         <el-form-item>
-          <el-button size="small" type="primary" @click="showEditDialog({})">{{ $t('message.add_new_line') }}</el-button>
+          <el-button type="primary" @click="showEditDialog({})">{{ $t('message.add_new_line') }}</el-button>
         </el-form-item>
       </el-form>
 
@@ -12,7 +12,7 @@
       <el-dialog :title="dialogTitle" :visible.sync="editDialog" @open='openDialog' :close-on-click-modal='false'>
         <el-form>
           <el-form-item label="Value">
-            <FormatViewer ref='formatViewer' :redisKey="redisKey" :dataMap="editLineItem" :content.sync='editLineItem.value'></FormatViewer>
+            <FormatViewer ref='formatViewer' :redisKey="redisKey" :dataMap="editLineItem" :content='editLineItem.value'></FormatViewer>
           </el-form-item>
         </el-form>
 
@@ -26,8 +26,8 @@
     <!-- content table -->
     <el-table
       stripe
-      size="small"
       border
+      size='mini'
       min-height=300
       :data="setData">
       <el-table-column
@@ -60,6 +60,7 @@
           <el-button type="text" @click="$util.copyToClipboard(scope.row.value)" icon="el-icon-document" :title="$t('message.copy')"></el-button>
           <el-button type="text" @click="showEditDialog(scope.row)" icon="el-icon-edit" :title="$t('message.edit_line')"></el-button>
           <el-button type="text" @click="deleteLine(scope.row)" icon="el-icon-delete" :title="$t('el.upload.delete')"></el-button>
+          <el-button type="text" @click="dumpCommand(scope.row)" icon="fa fa-code" :title="$t('message.dump_to_clipboard')"></el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -95,7 +96,7 @@ export default {
       beforeEditItem: {},
       editLineItem: {},
       loadingIcon: '',
-      pageSize: 30,
+      pageSize: 100,
       searchPageSize: 1000,
       oneTimeListLength: 0,
       scanStream: null,
@@ -133,6 +134,8 @@ export default {
       }).catch(e => {});
     },
     resetTable() {
+      // stop scanning first, #815
+      this.scanStream && this.scanStream.pause();
       this.setData = [];
       this.scanStream = null;
       this.oneTimeListLength = 0;
@@ -154,6 +157,7 @@ export default {
           setData.push({
             value: i,
             // valueDisplay: this.$util.bufToString(i),
+            uniq: Math.random(),
           });
         }
 
@@ -181,45 +185,65 @@ export default {
       return this.filterValue ? `*${this.filterValue}*` : '*';
     },
     openDialog() {
-      // this.$nextTick(() => {
-      //   this.$refs.formatViewer.autoFormat();
-      // });
+      this.$nextTick(() => {
+        this.$refs.formatViewer.autoFormat();
+      });
     },
     showEditDialog(row) {
       this.editLineItem = row;
       this.beforeEditItem = this.$util.cloneObjWithBuff(row);
       this.editDialog = true;
+
+      this.rowUniq = row.uniq;
+    },
+    dumpCommand(item) {
+      const lines = item ? [item] : this.setData;
+      const params = lines.map(line => {
+        return this.$util.bufToQuotation(line.value);
+      });
+
+      const command = `SADD ${this.$util.bufToQuotation(this.redisKey)} ${params.join(' ')}`;
+      this.$util.copyToClipboard(command);
+      this.$message.success({message: this.$t('message.copy_success'), duration: 800});
     },
     editLine() {
       const key = this.redisKey;
       const client = this.client;
       const before = this.beforeEditItem;
-      const after = this.editLineItem;
+      const afterValue = this.$refs.formatViewer.getContent();
 
-      this.editDialog = false;
-
-      if (!after.value || (before.value && before.value.equals(after.value))) {
+      if (!afterValue) {
         return;
       }
 
+      // not changed
+      if (before.value && before.value.equals(afterValue)) {
+        return this.editDialog = false;
+      }
+
+      this.editDialog = false;
+
       client.sadd(
         key,
-        after.value
+        afterValue
       ).then((reply) => {
         // add success
-        if (reply === 1) {
+        if (reply == 1) {
           // edit key remove previous value
           if (before.value) {
-            client.srem(
-              key,
-              before.value
-            ).then((reply) => {
-              this.initShow();
-            });
+            client.srem(key, before.value);
           }
 
+          // this.initShow(); // do not reinit, #786
+          const newLine = {value: afterValue, uniq: Math.random()};
+          // edit line
+          if (this.rowUniq) {
+            this.$util.listSplice(this.setData, this.rowUniq, newLine);
+          }
+          // new line
           else {
-            this.initShow();
+            this.setData.push(newLine);
+            this.total++;
           }
 
           this.$message.success({
@@ -229,7 +253,7 @@ export default {
         }
 
         // value exists
-        else if (reply === 0) {
+        else if (reply == 0) {
           this.$message.error({
             message: this.$t('message.value_exists'),
             duration: 1000,
@@ -246,13 +270,15 @@ export default {
           this.redisKey,
           row.value
         ).then((reply) => {
-          if (reply === 1) {
+          if (reply == 1) {
             this.$message.success({
               message: this.$t('message.delete_success'),
               duration: 1000,
             });
 
-            this.initShow();
+            // this.initShow(); // do not reinit, #786
+            this.$util.listSplice(this.setData, row.uniq);
+            this.total--;
           }
         }).catch(e => {this.$message.error(e.message);});
       }).catch(() => {});

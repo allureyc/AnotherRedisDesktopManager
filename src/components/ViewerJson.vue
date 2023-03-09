@@ -1,53 +1,44 @@
 <template>
-<div class="text-formated-container">
-  <div class="collapse-container">
-    <el-button class="collapse-btn" type="text" @click="toggleCollapse">{{ $t('message.' + collapseText) }}</el-button>
-  </div>
-  <JsonViewer
-    v-if='show'
-    :value="newContent"
-    :expand-depth="previousDeep"
-    >
-  </JsonViewer>
-</div>
+  <JsonEditor ref='editor' :content='newContent' :readOnly='disabled||false'></JsonEditor>
 </template>
 
 <script type="text/javascript">
-import JsonViewer from 'vue-json-viewer'
+import JsonEditor from '@/components/JsonEditor';
+const JSONbig = require('@qii404/json-bigint')({useNativeBigInt: false});
 
 export default {
-  data() {
-    return {
-      show: true,
-      previousDeep: 3,
-      collapseText: 'collapse_all',
-    };
-  },
-  components: {JsonViewer},
-  props: ['content'],
+  props: ['content', 'disabled'],
+  components: {JsonEditor},
   computed: {
     newContent() {
       try {
-        // change bigint to string
-        let JSONbig = require('json-bigint')({storeAsString: true});
-        let jsonSolved = JSONbig.stringify(JSONbig.parse(this.content));
-
-        return JSON.parse(jsonSolved);
+        const parsedObj = JSONbig.parse(this.content);
+        // if JSON.parse returns string, means raw content like "{\"name\":\"age\"}"
+        // (JSON string wrapped with quotation) issue #909
+        if (typeof parsedObj === 'string') {
+          this.jsonIsString = true;
+        }
+        return parsedObj;
       } catch (e) {
-        return this.$t('message.json_format_failed');
+        // parse failed, return raw content to edit instead of error
+        return this.content.toString();
       }
     },
   },
   methods: {
-    toggleCollapse() {
-      this.previousDeep = this.previousDeep ? 0 : Infinity;
-      this.collapseText = this.previousDeep ? 'collapse_all' : 'expand_all';
+    getContent() {
+      const content = this.$refs.editor.getContent();
 
-      // reload json tree
-      this.show = false;
-      this.$nextTick(() => {
-        this.show = true;
-      });
+      if (!content) {
+        return false;
+      }
+
+      // json in string, quotation wrapped and escaped,
+      if (this.jsonIsString) {
+        return JSONbig.stringify(content.toString());
+      }
+
+      return content;
     },
   },
 }

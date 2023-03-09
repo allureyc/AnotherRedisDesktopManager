@@ -54,7 +54,7 @@ export default {
       function mousemove(e)
       {
         const mouseX = e.x;
-        const dragSideWidth = mouseX - 19;
+        const dragSideWidth = mouseX - 17;
 
         if ((dragSideWidth > 200) && (dragSideWidth < 1500)) {
           that.sideWidth = dragSideWidth;
@@ -98,19 +98,10 @@ export default {
       this.initZoom();
     },
     initFont() {
-      let fontFamily = this.$storage.getSetting('fontFamily');
-
-      // set to default font-family
-      if (
-        !fontFamily || !fontFamily.length ||
-        fontFamily.toString() === 'Default Initial'
-      ) {
-        fontFamily = ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Helvetica',
-        'Arial', 'sans-serif','Microsoft YaHei', 'Apple Color Emoji', 'Segoe UI Emoji'];
-      }
-
-      document.body.style.fontFamily =
-        fontFamily.map((line) => {return `"${line}"`}).join(',');
+      const fontFamily = this.$storage.getFontFamily();
+      document.body.style.fontFamily = fontFamily;
+      // tell monaco editor
+      this.$bus.$emit('fontInited', fontFamily);
     },
     initZoom() {
       let zoomFactor = this.$storage.getSetting('zoomFactor');
@@ -157,31 +148,51 @@ button, input, textarea, .vjs__tree {
   overflow-x: hidden;
 }
 
+/*scrollbar style start*/
 ::-webkit-scrollbar {
   width: 9px;
 }
+/*track*/
 ::-webkit-scrollbar-track {
   background: #eaeaea;
   border-radius: 4px;
 }
 .dark-mode ::-webkit-scrollbar-track {
-  background: #475156;
+  background: #425057;
 }
+/*track hover*/
 ::-webkit-scrollbar-track:hover {
   background: #e0e0dd;
 }
 .dark-mode ::-webkit-scrollbar-track:hover {
-  background: #565656;
+  background: #495961;
 }
+/*thumb*/
 ::-webkit-scrollbar-thumb {
   border-radius: 8px;
   background: #c1c1c1;
 }
 .dark-mode ::-webkit-scrollbar-thumb {
-  background: #5d676d;
+  background: #5a6f7a;
 }
+/*thumb hover*/
 ::-webkit-scrollbar-thumb:hover {
-  background: #7d7d7d;
+  background: #7f7f7f;
+}
+.dark-mode ::-webkit-scrollbar-thumb:hover {
+  background: #6a838f;
+}
+/*scrollbar style end*/
+
+/*list index*/
+li .list-index {
+  color: #828282;
+  /*font-size: 80%;*/
+  user-select: none;
+  margin-right: 10px;
+}
+.dark-mode li .list-index {
+  color: #adacac;
 }
 
 .wrap-container {
@@ -204,7 +215,7 @@ button, input, textarea, .vjs__tree {
 }
 .right-main-container .main-tabs-container {
   overflow-y: hidden;
-  padding-top: 2px;
+  padding-top: 0px;
   padding-right: 4px;
 }
 
@@ -218,13 +229,13 @@ button, input, textarea, .vjs__tree {
   position: absolute;
   /*height: 100%;*/
   width: 10px;
-  right: -5px;
+  right: -12px;
   top: 0px;
 }
 #drag-resize-pointer {
   position: fixed;
   height: 100%;
-  width: 18px;
+  width: 10px;
   cursor: col-resize;
 }
 #drag-resize-pointer::after {
@@ -244,5 +255,9 @@ button, input, textarea, .vjs__tree {
 .dark-mode #drag-resize-pointer::after {
   border-left: 1px solid #b9b8b8;
   border-right: 1px solid #b9b8b8;
+}
+
+@keyframes rotate {
+  to{ transform: rotate(360deg); }
 }
 </style>

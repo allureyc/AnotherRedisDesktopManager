@@ -4,11 +4,10 @@
   <el-form-item>
     <FormatViewer
       ref='formatViewer'
-      :content.sync='content'
+      :content='content'
       :binary='binary'
       :redisKey='redisKey'
-      float=''
-      :textrows=12>
+      float=''>
     </FormatViewer>
   </el-form-item>
 
@@ -42,11 +41,16 @@ export default {
       });
     },
     execSave() {
-      const key = this.redisKey;
+      const content = this.$refs.formatViewer.getContent();
+
+      // viewer check failed, do not save
+      if (content === false) {
+        return;
+      }
 
       this.client.set(
-        key,
-        this.content
+        this.redisKey,
+        content
       ).then((reply) => {
         if (reply === 'OK') {
           // for compatibility, use expire instead of setex
@@ -81,11 +85,17 @@ export default {
     initShortcut() {
       this.$shortcut.bind('ctrl+s, ⌘+s', this.hotKeyScope, () => {
         // make input blur to fill the new value
-        this.$refs.saveBtn.$el.focus();
+        // this.$refs.saveBtn.$el.focus();
         this.execSave();
 
         return false;
       });
+    },
+    dumpCommand() {
+      const command = `SET ${this.$util.bufToQuotation(this.redisKey)} ` +
+                      this.$util.bufToQuotation(this.content);
+      this.$util.copyToClipboard(command);
+      this.$message.success({message: this.$t('message.copy_success'), duration: 800});
     },
   },
   mounted() {
@@ -105,9 +115,8 @@ export default {
     font-size: 14px;
     height: calc(100vh - 286px);
   }
-  /*not text viewer box, such as json*/
-  .key-content-string .text-formated-container {
-    box-sizing: border-box;
-    min-height: calc(100vh - 286px);
+  /*json in monaco editor*/
+  .key-content-string .text-formated-container .monaco-editor-con {
+    height: calc(100vh - 330px);
   }
 </style>

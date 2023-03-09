@@ -1,7 +1,7 @@
 <template>
   <div>
     <!-- </textarea> -->
-    <el-input ref='textInput' :disabled='disabled' type='textarea' :rows='textrows' :value='contentDisplay' @change="updateContent($event)" @input='inputContent'>
+    <el-input ref='textInput' :disabled='disabled' type='textarea' v-model='contentDisplay' @input='inputContent'>
     </el-input>
   </div>
 </template>
@@ -11,22 +11,26 @@ export default {
   data() {
     return {
       confirmChange: false,
+      contentDisplay: "",
+      oldContentDisplay: "",
     };
   },
-  props: ['content', 'contentVisible', 'textrows', 'disabled'],
-  computed: {
-    contentDisplay() {
-      return this.content.toString();
+  props: ['content', 'contentVisible', 'disabled'],
+  watch: {
+    content(val) {
+      // refresh
+      this.contentDisplay = val.toString();
+      this.oldContentDisplay = this.contentDisplay;
     },
   },
   methods: {
-    updateContent(value) {
-      // hex mode need confirm when changing
+    getContent() {
+      // not changed
       if (!this.contentVisible && !this.confirmChange) {
-        return;
+        return this.content;
       }
-      
-      this.$emit('updateContent', Buffer.from(value));
+
+      return Buffer.from(this.contentDisplay);
     },
     inputContent(value) {
       // visible content do nothing
@@ -40,14 +44,16 @@ export default {
       }
 
       this.$confirm(this.$t('message.confirm_modify_unvisible_content')).then(_ => {
-        // fill value when first confirm
-        this.$emit('updateContent', Buffer.from(value));
         return this.confirmChange = true;
       }).catch(_ => {
         // recovery the input value
-        this.$refs.textInput.$refs.textarea.value = this.contentDisplay
+        this.contentDisplay = this.oldContentDisplay;
       });
     },
+  },
+  mounted() {
+    this.contentDisplay = this.content.toString();
+    this.oldContentDisplay = this.contentDisplay;
   },
 }
 </script>

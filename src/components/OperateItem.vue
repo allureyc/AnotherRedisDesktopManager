@@ -70,7 +70,7 @@
     </el-form-item>
 
     <!-- new key dialog -->
-    <el-dialog :title="$t('message.add_new_key')" :visible.sync="newKeyDialog">
+    <el-dialog :title="$t('message.add_new_key')" :visible.sync="newKeyDialog" :close-on-click-modal='false' append-to-body>
       <el-form label-position="top" size="mini">
         <el-form-item :label="$t('message.key_name')">
           <el-input v-model='newKeyName'></el-input>
@@ -112,7 +112,7 @@ export default {
       selectedNewKeyType: 'string',
       newKeyTypes: {
         String: 'string', Hash: 'hash', List: 'list', Set: 'set', Zset: 'zset',
-        Stream: 'stream',
+        Stream: 'stream', ReJSON: 'rejson',
       },
       dbKeysCount: {},
     };
@@ -188,6 +188,8 @@ export default {
 
       this.client.select(this.selectedDbIndex)
       .then(() => {
+        // clear the search input
+        this.searchMatch = '';
         this.$parent.$parent.$parent.$refs.keyList.refreshKeyList();
         // store the last selected db
         localStorage.setItem('lastSelectedDb_' + this.config.connectionName, this.selectedDbIndex);
@@ -245,6 +247,9 @@ export default {
         case 'stream': {
           return this.client.xadd(key, '*', 'New key', 'New value');
         }
+        case 'rejson': {
+          return this.client.call('JSON.SET', [key, '.', '{"New key":"New value"}']);
+        }
       }
     },
     changeMatchMode() {
@@ -298,6 +303,10 @@ export default {
   .connection-menu .search-item {
     margin-top: -10px;
     margin-bottom: 15px;
+  }
+  /*fix extract checkbox height*/
+  .connection-menu .search-item .el-input__suffix-inner {
+    display: inline-block;
   }
   .connection-menu .search-input {
     width: 100%;

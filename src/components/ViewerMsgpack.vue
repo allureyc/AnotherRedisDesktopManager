@@ -1,31 +1,16 @@
 <template>
-<div class="text-formated-container">
-  <div class="collapse-container">
-    <el-button class="collapse-btn" type="text" @click="toggleCollapse">{{ $t('message.' + collapseText) }}</el-button>
-  </div>
-  <JsonViewer
-    v-if='show'
-    :value="newContent"
-    :expand-depth="previousDeep"
-    >
-  </JsonViewer>
-</div>
+  <JsonEditor ref='editor' :content='newContent' :readOnly='false'></JsonEditor>
 </template>
 
 <script type="text/javascript">
-import JsonViewer from 'vue-json-viewer'
-import {decode} from "@msgpack/msgpack";
+import JsonEditor from '@/components/JsonEditor';
+import {decode, encode} from "algo-msgpack-with-bigint"
+const JSONbig = require('@qii404/json-bigint')({useNativeBigInt: true});
+
 
 export default {
-  data() {
-    return {
-      show: true,
-      previousDeep: 3,
-      collapseText: 'collapse_all',
-    };
-  },
-  components: {JsonViewer},
   props: ['content'],
+  components: {JsonEditor},
   computed: {
     newContent() {
       try {
@@ -36,16 +21,32 @@ export default {
     },
   },
   methods: {
-    toggleCollapse() {
-      this.previousDeep = this.previousDeep ? 0 : Infinity;
-      this.collapseText = this.previousDeep ? 'collapse_all' : 'expand_all';
+    getContent() {
+      let content = this.$refs.editor.getRawContent();
 
-      // reload json tree
-      this.show = false;
-      this.$nextTick(() => {
-        this.show = true;
-      });
+      // raw content is an object
+      if (typeof this.newContent !== 'string') {
+        try {
+          content = JSONbig.parse(content); 
+        }
+        catch (e) {
+          // object parse failed
+          this.$message.error({
+            message: 'Raw content is an object, but now parse object failed: ' + e.message,
+            duration: 6000,
+          });
+
+          return false
+        }
+      }
+
+      // encode returns Uint8Array
+      return Buffer.from(encode(content));
     },
-  },
+    copyContent() {
+      const content = decode(this.content);
+      return (typeof content === 'object') ? JSONbig.stringify(content) : content;
+    }
+  }
 }
 </script>
